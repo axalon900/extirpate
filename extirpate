@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+# =============================
+# utility functions
+# =============================
+
+echo_done() { echo " $(tput bold)DONE.$(tput sgr0)"; }
+
+# =============================
+# Main
+# =============================
+
+WORKDIR="extirpate_work"
+
+libname=$1
+symbols="${@:2}"
+
+archs=(`lipo -info "$libname" | egrep -o 'i386|x86_64|armv7|armv7s|arm64'`)
+archs=${archs[@]}
+echo "Found architectures: $archs"
+
+rm -rf $WORKDIR
+mkdir -p $WORKDIR
+cd $WORKDIR
+
+mkdir -p "slices"
+
+for arch in $archs; do
+    # unpack slice
+    echo "=> Preparing $(tput bold)$arch$(tput sgr0) slice."
+    echo -n "===> Unpacking..."
+    dest="slices/$libname.$arch"
+    lipo -thin $arch "../$libname" -output "$dest"
+    mkdir -p "$arch"
+    cd "$arch"
+    ar -x "../$dest"
+    
+    # remove symbols if needed
+    if [ ${#symbols} -ne 0 ]; then
+        echo -n " Cleaning..."
+        rm $symbols
+    fi
+    cd ..
+
+    # rebuild static lib for each architecture
+    echo -n " Repacking..."
+    libtool -static "$arch"/*.o -o "$libname.$arch"
+    echo_done
+done
+
+# combine rebuilt libs into fat binary
+echo -n "=> Combining slices into single fat binary..."
+lipo -create "$libname".* -output "$libname-CLEAN" \
+    && mv "$libname-CLEAN" ..
+echo_done
+
